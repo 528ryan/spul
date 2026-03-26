@@ -14,7 +14,10 @@
       "Read(//c/Users/cebol/.claude/skills/spul/**)",
       "Read(//mnt/skills/public/**)",
       "mcp__claude_ai_Supabase__list_projects",
-      "mcp__claude_ai_Supabase__apply_migration"
+      "mcp__claude_ai_Supabase__apply_migration",
+      "Bash(node:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)"
     ]
   }
 }
