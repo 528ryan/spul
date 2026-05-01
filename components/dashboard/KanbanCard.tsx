@@ -19,14 +19,6 @@ const STATUS_LABELS: Record<OrderStatus, string> = {
   shipped:  'Despachado',
 }
 
-function formatItem(item: OrderItem): string {
-  const attrs = item.variant_attributes
-    ? Object.values(item.variant_attributes).join(' | ')
-    : null
-  return attrs
-    ? `${item.sku} | ${attrs} x${item.quantity}`
-    : `${item.sku} x${item.quantity}`
-}
 
 interface KanbanCardProps {
   order: Order
@@ -36,7 +28,6 @@ export function KanbanCard({ order }: KanbanCardProps) {
   const [isPending, startTransition] = useTransition()
   const [trackingInput, setTrackingInput] = useState('')
   const [showTrackingInput, setShowTrackingInput] = useState(false)
-  const [itemsExpanded, setItemsExpanded] = useState(false)
   const { showToast } = useToast()
 
   const delay = getOrderDelay(order.ordered_at)
@@ -87,10 +78,6 @@ export function KanbanCard({ order }: KanbanCardProps) {
     })
   }
 
-  const firstItem = order.order_items[0]
-  const firstItemText = firstItem ? formatItem(firstItem) : ''
-  const extraItems = order.order_items.slice(1)
-  const extraCount = extraItems.length
   const dateLabel = order.ordered_at
     ? formatDateTime(order.ordered_at)
     : formatDateTime(order.created_at)
@@ -134,33 +121,25 @@ export function KanbanCard({ order }: KanbanCardProps) {
                 <IconPencilSmall />
               </button>
             </div>
-            {firstItemText && (
-              <div className="mt-0.5">
-                <p className="text-xs text-muted truncate">{firstItemText}</p>
-                {extraCount > 0 && (
-                  <ItemsExpandBadge
-                    extraCount={extraCount}
-                    extraItems={extraItems}
-                    expanded={itemsExpanded}
-                    onToggle={() => setItemsExpanded(!itemsExpanded)}
-                  />
-                )}
+            {order.order_items.length > 0 && (
+              <div className="mt-1 space-y-0.5">
+                {order.order_items.map((item) => (
+                  <ItemLine key={item.id} item={item} primary={false} />
+                ))}
               </div>
             )}
           </>
         ) : (
           <>
-            <p className="text-sm text-text font-medium truncate" title={firstItemText}>
-              {firstItemText || '—'}
-            </p>
-            {extraCount > 0 && (
-              <ItemsExpandBadge
-                extraCount={extraCount}
-                extraItems={extraItems}
-                expanded={itemsExpanded}
-                onToggle={() => setItemsExpanded(!itemsExpanded)}
-              />
-            )}
+            <div className="space-y-0.5">
+              {order.order_items.length > 0 ? (
+                order.order_items.map((item, idx) => (
+                  <ItemLine key={item.id} item={item} primary={idx === 0} />
+                ))
+              ) : (
+                <p className="text-sm text-muted">—</p>
+              )}
+            </div>
             <button
               type="button"
               onClick={() => setShowTrackingInput(true)}
@@ -255,42 +234,20 @@ export function KanbanCard({ order }: KanbanCardProps) {
   )
 }
 
-interface ItemsExpandBadgeProps {
-  extraCount: number
-  extraItems: OrderItem[]
-  expanded: boolean
-  onToggle: () => void
-}
-
-function ItemsExpandBadge({ extraCount, extraItems, expanded, onToggle }: ItemsExpandBadgeProps) {
+function ItemLine({ item, primary }: { item: OrderItem; primary: boolean }) {
+  const attrs = item.variant_attributes
+    ? Object.values(item.variant_attributes as Record<string, string>).join(' | ')
+    : null
   return (
-    <div className="mt-0.5">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="inline-flex items-center gap-1 text-[10px] font-medium text-accent hover:text-accent/80 transition-colors cursor-pointer"
-      >
-        +{extraCount}
-        <span className="text-[8px]">{expanded ? '▲' : '▼'}</span>
-      </button>
-      {expanded && (
-        <div
-          className="mt-1 space-y-0.5 overflow-hidden"
-          style={{ animation: 'spul-expand 200ms ease' }}
-        >
-          {extraItems.map((item) => (
-            <div key={item.id} className="flex items-center gap-1.5">
-              <span className="text-[10px] font-mono text-accent shrink-0">{item.sku}</span>
-              {item.variant_attributes && (
-                <span className="text-[10px] text-muted truncate">
-                  {Object.values(item.variant_attributes as Record<string, string>).join(' | ')}
-                </span>
-              )}
-              <span className="text-[10px] text-muted ml-auto shrink-0">x{item.quantity}</span>
-            </div>
-          ))}
-        </div>
-      )}
+    <div className="flex items-baseline gap-1.5 flex-wrap">
+      <span className={primary
+        ? 'font-mono text-sm font-semibold text-accent'
+        : 'font-mono text-xs text-accent/70'
+      }>
+        {item.sku}
+      </span>
+      {attrs && <span className="text-xs text-muted">| {attrs}</span>}
+      <span className="text-xs text-muted">x{item.quantity}</span>
     </div>
   )
 }
