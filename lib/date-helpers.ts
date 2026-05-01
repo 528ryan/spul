@@ -75,10 +75,34 @@ export function formatShortDate(date: string): string {
   return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()].toLowerCase()}`
 }
 
-/** "14/03 15:22" */
+/** "14/03 15:22" — sempre em America/Sao_Paulo (BRT/BRST) */
 export function formatDateTime(date: string): string {
-  const d = new Date(date)
   return new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
     day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
-  }).format(d)
+  }).format(new Date(date))
+}
+
+/**
+ * Formata uma string timestamptz em "dd/mm hh:mm" no fuso de São Paulo.
+ * Use para exibir datas/horas de pedidos e lançamentos.
+ */
+export function formatDateBRT(dateStr: string): string {
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(dateStr))
+}
+
+/**
+ * Retorna "YYYY-MM-DDTHH:MM" ajustado para BRT (UTC-3),
+ * para uso como valor default em inputs datetime-local.
+ */
+export function getNowBRT(): string {
+  const now = new Date()
+  const brt = new Date(now.getTime() - 3 * 60 * 60 * 1000)
+  return brt.toISOString().slice(0, 16)
 }

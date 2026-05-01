@@ -20,6 +20,7 @@ export function formatDate(date: string | Date): string {
 export function formatDateTime(dt: string | Date): string {
   const d = typeof dt === 'string' ? new Date(dt) : dt
   return new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
     day: '2-digit',
     month: '2-digit',
     hour: '2-digit',

@@ -92,7 +92,10 @@ function buildPlatforms(
 ): { platform: string; total: number }[] {
   const map = new Map<string, number>()
   for (const t of txs) {
-    if (t.platform) map.set(t.platform, (map.get(t.platform) ?? 0) + t.amount)
+    // Conta só entradas — taxas de plataforma (saídas) não entram no breakdown
+    if (t.platform && t.type === 'entrada') {
+      map.set(t.platform, (map.get(t.platform) ?? 0) + t.amount)
+    }
   }
   return [...map.entries()]
     .map(([platform, total]) => ({ platform, total }))

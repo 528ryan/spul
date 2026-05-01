@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { OrderSchema, OrderStatusSchema } from '@/lib/validations/order'
+import { getPlatformLabel } from '@/lib/platform-fees'
 
 export async function createOrder(
   data: unknown,
@@ -119,6 +120,18 @@ export async function deleteOrder(
     .eq('user_id', user.id)
     .single()
 
+  // Fetch the entrada transaction details before deleting the order
+  let entrada: { description: string; date: string; platform: string | null } | null = null
+  if (order?.transaction_id) {
+    const { data } = await supabase
+      .from('transactions')
+      .select('description, date, platform')
+      .eq('id', order.transaction_id)
+      .single()
+    entrada = data
+  }
+
+  // Delete the order (cascades order_items)
   const { error: orderError } = await supabase
     .from('orders')
     .delete()
@@ -127,7 +140,20 @@ export async function deleteOrder(
 
   if (orderError) return { success: false, error: orderError.message }
 
-  if (order?.transaction_id) {
+  if (order?.transaction_id && entrada) {
+    // Delete the fee transaction (saída de taxa) if it exists
+    const platformLabel = getPlatformLabel(entrada.platform)
+    if (platformLabel) {
+      await supabase
+        .from('transactions')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('description', `Taxa ${platformLabel} — ${entrada.description}`)
+        .eq('category_name', 'Taxas plataforma')
+        .eq('date', entrada.date)
+    }
+
+    // Delete the entrada transaction
     await supabase
       .from('transactions')
       .delete()

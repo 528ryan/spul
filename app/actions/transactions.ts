@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { TransactionSchema, PedidoSchema } from '@/lib/validations/transaction'
 import { PLAN_LIMITS } from '@/lib/constants/plans'
-import { calculatePlatformFee } from '@/lib/platform-fees'
+import { calculatePlatformFee, getPlatformLabel } from '@/lib/platform-fees'
 import type { Platform } from '@/lib/platform-fees'
 
 // ── helpers ───────────────────────────────────────────────────────────────
@@ -44,7 +44,7 @@ function parseFormData(formData: FormData): Record<string, unknown> {
 
 export async function createTransaction(
   formData: FormData,
-): Promise<{ success: boolean; error?: string; orderCreated?: boolean }> {
+): Promise<{ success: boolean; error?: string; orderCreated?: boolean; feeCreated?: boolean }> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { success: false, error: 'Não autenticado' }
@@ -111,40 +111,51 @@ export async function createTransaction(
     if (!category) return { success: false, error: 'Categoria não encontrada' }
 
     // Calculate totals
-    const grossAmount = parsed.data.items.reduce(
+    const grossAmount    = parsed.data.items.reduce(
       (sum, item) => sum + item.quantity * item.unit_price,
       0,
     )
-    const discount    = parsed.data.discount ?? 0
-    const taxable     = Math.max(0, grossAmount - discount)
-    const fee         = parsed.data.platform
-      ? calculatePlatformFee(parsed.data.platform as Platform, taxable, 0)
+    const discount       = parsed.data.discount ?? 0
+    const entradaAmount  = Math.max(0, grossAmount - discount) // o que entra na conta
+    const fee            = parsed.data.platform
+      ? calculatePlatformFee(parsed.data.platform as Platform, grossAmount, discount)
       : null
-    const netAmount   = fee ? fee.netAmount : taxable
-    const orderRef    = parsed.data.order_ref ?? null
-    const date        = parsed.data.ordered_at.slice(0, 10) // YYYY-MM-DD
+    const orderRef       = parsed.data.order_ref ?? null
+    const date           = parsed.data.ordered_at.slice(0, 10) // YYYY-MM-DD
+    const pedidoLabel    = orderRef || 'Pedido'
+    const platformLabel  = getPlatformLabel(parsed.data.platform)
 
-    // Insert transaction
+    // Check for duplicate order_ref
+    if (orderRef) {
+      const { data: existing } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('order_ref', orderRef)
+        .maybeSingle()
+      if (existing) {
+        return { success: false, error: `Pedido ${orderRef} já cadastrado` }
+      }
+    }
+
+    // 1. Transaction de ENTRADA — valor bruto (gross - discount)
     const { data: tx, error: txError } = await supabase
       .from('transactions')
       .insert({
-        user_id:            user.id,
-        type:               'entrada',
-        description:        orderRef || 'Pedido',
-        amount:             netAmount,
-        category_id:        parsed.data.category_id,
-        category_name:      category.name,
-        platform:           parsed.data.platform    ?? null,
-        payment_method:     parsed.data.payment_method ?? null,
-        tracking_code:      parsed.data.tracking_code  ?? null,
-        notes:              parsed.data.notes          ?? null,
+        user_id:        user.id,
+        type:           'entrada',
+        description:    pedidoLabel,
+        amount:         entradaAmount,
+        category_id:    parsed.data.category_id,
+        category_name:  category.name,
+        platform:       parsed.data.platform     ?? null,
+        payment_method: parsed.data.payment_method ?? null,
+        tracking_code:  parsed.data.tracking_code  ?? null,
+        notes:          parsed.data.notes           ?? null,
         date,
-        gross_amount:       grossAmount,
+        gross_amount:   grossAmount,
         discount,
-        net_amount:         netAmount,
-        platform_fee_pct:   fee?.feePct   ?? null,
-        platform_fee_fixed: fee?.feeFixed ?? null,
-        platform_fee_total: fee?.feeTotal ?? null,
+        net_amount:     entradaAmount,
       })
       .select('id')
       .single()
@@ -153,7 +164,25 @@ export async function createTransaction(
       return { success: false, error: txError?.message ?? 'Erro ao registrar transação' }
     }
 
-    // Insert order
+    // 2. Transaction de SAÍDA — taxa da plataforma (se houver)
+    if (fee && fee.feeTotal > 0) {
+      const { error: feeError } = await supabase.from('transactions').insert({
+        user_id:       user.id,
+        type:          'saida',
+        description:   `Taxa ${platformLabel} — ${pedidoLabel}`,
+        amount:        fee.feeTotal,
+        category_name: 'Taxas plataforma',
+        platform:      parsed.data.platform ?? null,
+        date,
+      })
+      if (feeError) {
+        // Reverter a entrada criada
+        await supabase.from('transactions').delete().eq('id', tx.id).eq('user_id', user.id)
+        return { success: false, error: feeError.message }
+      }
+    }
+
+    // 3. Criar order na produção
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .insert({
@@ -173,7 +202,7 @@ export async function createTransaction(
       return { success: false, error: orderError?.message ?? 'Erro ao criar pedido na produção' }
     }
 
-    // Insert order items
+    // 4. Insert order items
     const { error: itemsError } = await supabase.from('order_items').insert(
       parsed.data.items.map((item) => ({
         order_id:           order.id,
@@ -189,7 +218,7 @@ export async function createTransaction(
     revalidatePath('/lancamentos')
     revalidatePath('/dashboard')
     revalidatePath('/producao')
-    return { success: true, orderCreated: true }
+    return { success: true, orderCreated: true, feeCreated: !!(fee && fee.feeTotal > 0) }
   }
 
   // ── MODO NORMAL (lançamento único) ────────────────────────────────────
@@ -262,12 +291,35 @@ export async function deleteTransaction(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { success: false, error: 'Não autenticado' }
 
+  // Fetch the transaction to check if it's a Pedido entrada
+  const { data: tx } = await supabase
+    .from('transactions')
+    .select('description, date, platform, category_name, type')
+    .eq('id', id)
+    .eq('user_id', user.id)
+    .single()
+
+  // Find linked order (before deleting the transaction)
   const { data: order } = await supabase
     .from('orders')
     .select('id')
     .eq('transaction_id', id)
     .eq('user_id', user.id)
     .maybeSingle()
+
+  // If it's a Pedido entrada, also delete the linked fee transaction
+  if (tx?.type === 'entrada' && tx.category_name === 'Pedido') {
+    const platformLabel = getPlatformLabel(tx.platform)
+    if (platformLabel) {
+      await supabase
+        .from('transactions')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('description', `Taxa ${platformLabel} — ${tx.description}`)
+        .eq('category_name', 'Taxas plataforma')
+        .eq('date', tx.date)
+    }
+  }
 
   const { error } = await supabase
     .from('transactions')

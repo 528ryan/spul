@@ -8,6 +8,7 @@ import { calculatePlatformFee } from '@/lib/platform-fees'
 import { useProductSearch } from '@/lib/hooks/useProductSearch'
 import { ProductAutocomplete } from '@/components/dashboard/ProductAutocomplete'
 import { formatCurrency } from '@/lib/utils'
+import { getNowBRT } from '@/lib/date-helpers'
 import type { Category, ProductVariant, ProductWithVariants } from '@/lib/types'
 import type { Platform } from '@/lib/platform-fees'
 
@@ -28,12 +29,6 @@ const PAYMENT_OPTIONS = [
 ]
 
 const TODAY = new Date().toISOString().slice(0, 10)
-
-function nowDateTimeLocal(): string {
-  const now = new Date()
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`
-}
 
 // ── Pedido item state ─────────────────────────────────────────────────────
 
@@ -80,7 +75,8 @@ export function TransactionForm({ categories }: TransactionFormProps) {
   const [pedidoItems, setPedidoItems] = useState<PedidoItemState[]>([emptyPedidoItem()])
   const [pedidoPlatform, setPedidoPlatform] = useState('')
   const [pedidoOrderRef, setPedidoOrderRef] = useState('')
-  const [pedidoOrderedAt, setPedidoOrderedAt] = useState(nowDateTimeLocal())
+  const [pedidoOrderRefError, setPedidoOrderRefError] = useState<string | null>(null)
+  const [pedidoOrderedAt, setPedidoOrderedAt] = useState(getNowBRT())
   const [pedidoDiscount, setPedidoDiscount] = useState('0')
   const [pedidoPaymentMethod, setPedidoPaymentMethod] = useState('')
   const [pedidoTrackingCode, setPedidoTrackingCode] = useState('')
@@ -108,10 +104,10 @@ export function TransactionForm({ categories }: TransactionFormProps) {
   const pedidoTaxable = Math.max(0, pedidoSubtotal - pedidoDiscountNum)
   const pedidoFee = useMemo(
     () => {
-      if (!pedidoPlatform || pedidoTaxable <= 0) return null
-      return calculatePlatformFee(pedidoPlatform as Platform, pedidoTaxable, 0)
+      if (!pedidoPlatform || pedidoSubtotal <= 0) return null
+      return calculatePlatformFee(pedidoPlatform as Platform, pedidoSubtotal, pedidoDiscountNum)
     },
-    [pedidoPlatform, pedidoTaxable],
+    [pedidoPlatform, pedidoSubtotal, pedidoDiscountNum],
   )
   const pedidoNet = pedidoFee ? pedidoFee.netAmount : pedidoTaxable
 
@@ -182,11 +178,20 @@ export function TransactionForm({ categories }: TransactionFormProps) {
     setNormalSku('')
   }
 
+  async function handleOrderRefBlur() {
+    const ref = pedidoOrderRef.trim()
+    if (!ref) { setPedidoOrderRefError(null); return }
+    const res = await fetch(`/api/orders/check?order_ref=${encodeURIComponent(ref)}`)
+    const data = (await res.json()) as { exists: boolean }
+    setPedidoOrderRefError(data.exists ? `Pedido ${ref} já cadastrado` : null)
+  }
+
   function resetPedidoForm() {
     setPedidoItems([emptyPedidoItem()])
     setPedidoPlatform('')
     setPedidoOrderRef('')
-    setPedidoOrderedAt(nowDateTimeLocal())
+    setPedidoOrderRefError(null)
+    setPedidoOrderedAt(getNowBRT())
     setPedidoDiscount('0')
     setPedidoPaymentMethod('')
     setPedidoTrackingCode('')
@@ -238,7 +243,12 @@ export function TransactionForm({ categories }: TransactionFormProps) {
       const result = await createTransaction(fd)
       if (result.success) {
         resetPedidoForm()
-        showToast('Pedido registrado e enviado para produção', 'success')
+        showToast(
+          result.feeCreated
+            ? 'Pedido registrado — 2 lançamentos criados (entrada + taxa)'
+            : 'Pedido registrado',
+          'success',
+        )
       } else {
         showToast(result.error ?? 'Erro inesperado', 'error')
       }
@@ -587,12 +597,14 @@ export function TransactionForm({ categories }: TransactionFormProps) {
               })}
             </div>
 
-            <div className="border-t border-border pt-2 space-y-1.5">
+            <div className="border-t border-border pt-2 space-y-2">
+              {/* Subtotal bruto */}
               <div className="flex justify-between text-xs text-muted">
                 <span>Subtotal bruto</span>
                 <span className="tabular-nums">{formatCurrency(pedidoSubtotal)}</span>
               </div>
 
+              {/* Desconto */}
               {pedidoDiscountNum > 0 && (
                 <div className="flex justify-between text-xs text-danger">
                   <span>Desconto</span>
@@ -600,31 +612,38 @@ export function TransactionForm({ categories }: TransactionFormProps) {
                 </div>
               )}
 
+              {/* ENTRADA */}
+              <div className="flex justify-between text-xs font-semibold">
+                <span className="text-success">ENTRADA (valor bruto)</span>
+                <span className="text-success tabular-nums">{formatCurrency(pedidoTaxable)}</span>
+              </div>
+
+              {/* Fee section — SAÍDA */}
               {pedidoFee && (
                 <>
-                  <div className="flex justify-between text-xs text-muted">
-                    <span>Valor taxável</span>
-                    <span className="tabular-nums">{formatCurrency(pedidoTaxable)}</span>
-                  </div>
                   <div className="flex justify-between text-xs text-danger">
                     <span className="truncate max-w-[160px]">
-                      Taxa {pedidoPlatform === 'shopee' ? 'Shopee' : 'TikTok'} ({pedidoFee.feeLabel})
+                      Taxa {pedidoPlatform === 'shopee' ? 'Shopee' : 'TikTok Shop'} ({pedidoFee.feeLabel})
                     </span>
                     <span className="tabular-nums shrink-0 ml-1">-{formatCurrency(pedidoFee.feeTotal)}</span>
                   </div>
+                  <div className="flex justify-between text-xs font-semibold">
+                    <span className="text-danger">SAÍDA (taxa plataforma)</span>
+                    <span className="text-danger tabular-nums">-{formatCurrency(pedidoFee.feeTotal)}</span>
+                  </div>
+                  <p className="text-[10px] text-muted italic">
+                    2 lançamentos serão criados automaticamente
+                  </p>
                 </>
               )}
 
+              {/* No bolso */}
               <div className="border-t border-border pt-2 flex justify-between items-baseline">
-                <span className="text-xs text-text-2">Valor líquido estimado</span>
-                <span className="text-lg font-bold text-success tabular-nums">
+                <span className="text-xs text-text-2">No bolso</span>
+                <span className="text-lg font-semibold text-accent tabular-nums">
                   {formatCurrency(pedidoNet)}
                 </span>
               </div>
-
-              <p className="text-[10px] text-muted-2 italic">
-                Estimado. Confira no painel da plataforma.
-              </p>
             </div>
           </>
         )}
@@ -672,10 +691,19 @@ export function TransactionForm({ categories }: TransactionFormProps) {
                 <label className="text-xs font-medium text-text-2 uppercase tracking-wide">Nº do pedido</label>
                 <input
                   value={pedidoOrderRef}
-                  onChange={(e) => setPedidoOrderRef(e.target.value)}
+                  onChange={(e) => { setPedidoOrderRef(e.target.value); setPedidoOrderRefError(null) }}
+                  onBlur={handleOrderRefBlur}
                   placeholder="Ex: 25031234567"
-                  className={inputCls}
+                  className={[
+                    inputCls,
+                    pedidoOrderRefError ? 'border-danger focus:ring-danger/40 focus:border-danger' : '',
+                  ].join(' ')}
                 />
+                {pedidoOrderRefError && (
+                  <p className="text-[11px] text-danger flex items-center gap-1">
+                    <span aria-hidden="true">⚠</span> {pedidoOrderRefError}
+                  </p>
+                )}
               </div>
 
               {/* Ordered at */}
@@ -753,7 +781,7 @@ export function TransactionForm({ categories }: TransactionFormProps) {
               <button
                 type="button"
                 onClick={handlePedidoSubmit}
-                disabled={isPending}
+                disabled={isPending || !!pedidoOrderRefError}
                 className="w-full flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold bg-success-dim border border-success text-success hover:bg-success/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
                 {isPending && <Spinner size="sm" />}

@@ -36,6 +36,7 @@ export function KanbanCard({ order }: KanbanCardProps) {
   const [isPending, startTransition] = useTransition()
   const [trackingInput, setTrackingInput] = useState('')
   const [showTrackingInput, setShowTrackingInput] = useState(false)
+  const [itemsExpanded, setItemsExpanded] = useState(false)
   const { showToast } = useToast()
 
   const delay = getOrderDelay(order.ordered_at)
@@ -86,7 +87,10 @@ export function KanbanCard({ order }: KanbanCardProps) {
     })
   }
 
-  const itemsText = order.order_items.map(formatItem).join(', ')
+  const firstItem = order.order_items[0]
+  const firstItemText = firstItem ? formatItem(firstItem) : ''
+  const extraItems = order.order_items.slice(1)
+  const extraCount = extraItems.length
   const dateLabel = order.ordered_at
     ? formatDateTime(order.ordered_at)
     : formatDateTime(order.created_at)
@@ -130,15 +134,33 @@ export function KanbanCard({ order }: KanbanCardProps) {
                 <IconPencilSmall />
               </button>
             </div>
-            {itemsText && (
-              <p className="text-xs text-muted truncate mt-0.5">{itemsText}</p>
+            {firstItemText && (
+              <div className="mt-0.5">
+                <p className="text-xs text-muted truncate">{firstItemText}</p>
+                {extraCount > 0 && (
+                  <ItemsExpandBadge
+                    extraCount={extraCount}
+                    extraItems={extraItems}
+                    expanded={itemsExpanded}
+                    onToggle={() => setItemsExpanded(!itemsExpanded)}
+                  />
+                )}
+              </div>
             )}
           </>
         ) : (
           <>
-            <p className="text-sm text-text font-medium truncate" title={itemsText}>
-              {itemsText || '—'}
+            <p className="text-sm text-text font-medium truncate" title={firstItemText}>
+              {firstItemText || '—'}
             </p>
+            {extraCount > 0 && (
+              <ItemsExpandBadge
+                extraCount={extraCount}
+                extraItems={extraItems}
+                expanded={itemsExpanded}
+                onToggle={() => setItemsExpanded(!itemsExpanded)}
+              />
+            )}
             <button
               type="button"
               onClick={() => setShowTrackingInput(true)}
@@ -229,6 +251,46 @@ export function KanbanCard({ order }: KanbanCardProps) {
           <IconTrash />
         </button>
       </div>
+    </div>
+  )
+}
+
+interface ItemsExpandBadgeProps {
+  extraCount: number
+  extraItems: OrderItem[]
+  expanded: boolean
+  onToggle: () => void
+}
+
+function ItemsExpandBadge({ extraCount, extraItems, expanded, onToggle }: ItemsExpandBadgeProps) {
+  return (
+    <div className="mt-0.5">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="inline-flex items-center gap-1 text-[10px] font-medium text-accent hover:text-accent/80 transition-colors cursor-pointer"
+      >
+        +{extraCount}
+        <span className="text-[8px]">{expanded ? '▲' : '▼'}</span>
+      </button>
+      {expanded && (
+        <div
+          className="mt-1 space-y-0.5 overflow-hidden"
+          style={{ animation: 'spul-expand 200ms ease' }}
+        >
+          {extraItems.map((item) => (
+            <div key={item.id} className="flex items-center gap-1.5">
+              <span className="text-[10px] font-mono text-accent shrink-0">{item.sku}</span>
+              {item.variant_attributes && (
+                <span className="text-[10px] text-muted truncate">
+                  {Object.values(item.variant_attributes as Record<string, string>).join(' | ')}
+                </span>
+              )}
+              <span className="text-[10px] text-muted ml-auto shrink-0">x{item.quantity}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

@@ -1,5 +1,15 @@
 export type Platform = 'shopee' | 'tiktok' | 'mercadolivre' | 'direto' | 'outro'
 
+/** Retorna o label legível da plataforma para usar em descrições de transações. */
+export function getPlatformLabel(platform: string | null | undefined): string {
+  const labels: Record<string, string> = {
+    shopee:       'Shopee',
+    tiktok:       'TikTok Shop',
+    mercadolivre: 'Mercado Livre',
+  }
+  return labels[platform ?? ''] ?? ''
+}
+
 export interface FeeBreakdown {
   grossAmount: number
   discount: number

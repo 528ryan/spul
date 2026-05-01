@@ -18,6 +18,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     .select('*, product_variants(*)')
     .eq('user_id', user.id)
     .order('sku', { ascending: true })
+    .order('sku', { ascending: true, referencedTable: 'product_variants' })
 
   if (q) {
     query = query.or(`sku.ilike.%${q}%,name.ilike.%${q}%`)
