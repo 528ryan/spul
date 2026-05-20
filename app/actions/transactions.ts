@@ -283,14 +283,16 @@ export async function importPedidos(
     const pedidoLabel   = pedido.orderRef
     const platformLabel = getPlatformLabel(pedido.platform)
 
-    // Recalcular taxa server-side
-    const fee         = calculatePlatformFee(
-      pedido.platform as Platform,
-      pedido.valorBruto,
-      pedido.desconto,
-      pedido.items.map((i) => ({ valorUnitario: i.valorUnitario, quantidade: i.quantidade })),
-    )
-    const taxas       = fee?.feeTotal ?? 0
+    // Calcular taxa — usa override do usuário quando fornecido
+    const fee = pedido.taxasManual !== undefined
+      ? null
+      : calculatePlatformFee(
+          pedido.platform as Platform,
+          pedido.valorBruto,
+          pedido.desconto,
+          pedido.items.map((i) => ({ valorUnitario: i.valorUnitario, quantidade: i.quantidade })),
+        )
+    const taxas = pedido.taxasManual !== undefined ? pedido.taxasManual : (fee?.feeTotal ?? 0)
     const valorEntrada = Math.max(0, pedido.valorBruto - pedido.desconto)
 
     // 1. Transaction de ENTRADA

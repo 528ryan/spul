@@ -31,6 +31,9 @@ export interface UpsellerPedido {
   taxas: number
   valorEntrada: number     // bruto - desconto
   valorLiquido: number     // bruto - desconto - taxas
+  /** Quando preenchido pelo usuário na prévia, o server action usa este valor
+   *  em vez de recalcular via calculatePlatformFee */
+  taxasManual?: number
 }
 
 function normalizePlatform(raw: string): Platform {
