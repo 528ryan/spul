@@ -6,6 +6,7 @@ import { TransactionSchema, PedidoSchema } from '@/lib/validations/transaction'
 import { PLAN_LIMITS } from '@/lib/constants/plans'
 import { calculatePlatformFee, getPlatformLabel } from '@/lib/platform-fees'
 import type { Platform } from '@/lib/platform-fees'
+import type { UpsellerPedido } from '@/lib/importers/upseller'
 
 // ── helpers ───────────────────────────────────────────────────────────────
 
@@ -245,6 +246,136 @@ export async function createTransaction(
   revalidatePath('/lancamentos')
   revalidatePath('/dashboard')
   return { success: true }
+}
+
+// ── importPedidos ─────────────────────────────────────────────────────────
+
+export async function importPedidos(
+  pedidos: UpsellerPedido[],
+): Promise<{ success: number; failed: number; errors: string[] }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { success: 0, failed: pedidos.length, errors: ['Não autenticado'] }
+
+  // Buscar categoria 'Pedido' (global ou do usuário)
+  const { data: pedidoCategory } = await supabase
+    .from('categories')
+    .select('id, name')
+    .eq('name', 'Pedido')
+    .or(`user_id.is.null,user_id.eq.${user.id}`)
+    .limit(1)
+    .maybeSingle()
+
+  const categoryId   = pedidoCategory?.id   ?? null
+  const categoryName = pedidoCategory?.name ?? 'Pedido'
+
+  let successCount = 0
+  let failedCount  = 0
+  const errors: string[] = []
+
+  for (const pedido of pedidos) {
+    const date          = pedido.orderedAt.slice(0, 10) // YYYY-MM-DD
+    const pedidoLabel   = pedido.orderRef
+    const platformLabel = getPlatformLabel(pedido.platform)
+
+    // Recalcular taxa server-side
+    const fee         = calculatePlatformFee(pedido.platform as Platform, pedido.valorBruto, pedido.desconto)
+    const taxas       = fee?.feeTotal ?? 0
+    const valorEntrada = Math.max(0, pedido.valorBruto - pedido.desconto)
+
+    // 1. Transaction de ENTRADA
+    const { data: tx, error: txError } = await supabase
+      .from('transactions')
+      .insert({
+        user_id:        user.id,
+        type:           'entrada',
+        description:    pedidoLabel,
+        amount:         valorEntrada,
+        category_id:    categoryId,
+        category_name:  categoryName,
+        platform:       pedido.platform,
+        tracking_code:  pedido.trackingCode || null,
+        date,
+        gross_amount:   pedido.valorBruto,
+        discount:       pedido.desconto,
+        net_amount:     valorEntrada,
+        platform_fee_pct:   fee?.feePct   ?? null,
+        platform_fee_fixed: fee?.feeFixed ?? null,
+        platform_fee_total: taxas > 0 ? taxas : null,
+      })
+      .select('id')
+      .single()
+
+    if (txError || !tx) {
+      failedCount++
+      errors.push(`${pedido.orderRef}: ${txError?.message ?? 'Erro ao registrar transação'}`)
+      continue
+    }
+
+    // 2. Transaction de SAÍDA — taxa da plataforma (se houver)
+    if (taxas > 0) {
+      const { error: feeError } = await supabase.from('transactions').insert({
+        user_id:       user.id,
+        type:          'saida',
+        description:   `Taxa ${platformLabel} — ${pedidoLabel}`,
+        amount:        taxas,
+        category_name: 'Taxas plataforma',
+        platform:      pedido.platform,
+        date,
+      })
+      if (feeError) {
+        // Reverter entrada criada
+        await supabase.from('transactions').delete().eq('id', tx.id).eq('user_id', user.id)
+        failedCount++
+        errors.push(`${pedido.orderRef}: ${feeError.message}`)
+        continue
+      }
+    }
+
+    // 3. Criar order na produção
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .insert({
+        user_id:        user.id,
+        order_ref:      pedido.orderRef,
+        platform:       pedido.platform,
+        status:         'received',
+        transaction_id: tx.id,
+        tracking_code:  pedido.trackingCode || null,
+        ordered_at:     pedido.orderedAt,
+      })
+      .select('id')
+      .single()
+
+    if (orderError || !order) {
+      failedCount++
+      errors.push(`${pedido.orderRef}: ${orderError?.message ?? 'Erro ao criar pedido na produção'}`)
+      continue
+    }
+
+    // 4. Insert order items
+    const { error: itemsError } = await supabase.from('order_items').insert(
+      pedido.items.map((item) => ({
+        order_id: order.id,
+        sku:      item.sku,
+        quantity: item.quantidade,
+      })),
+    )
+
+    if (itemsError) {
+      failedCount++
+      errors.push(`${pedido.orderRef}: ${itemsError.message}`)
+      continue
+    }
+
+    successCount++
+  }
+
+  revalidatePath('/lancamentos')
+  revalidatePath('/dashboard')
+  revalidatePath('/producao')
+
+  return { success: successCount, failed: failedCount, errors }
 }
 
 // ── updateTransaction ─────────────────────────────────────────────────────

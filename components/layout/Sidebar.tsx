@@ -1,7 +1,7 @@
 'use client'
 
 import { useTransition } from 'react'
-import { NavLinks, IconGrid, IconArrows, IconBarChart, IconCubeSmall, IconKanban } from './NavLinks'
+import { NavLinks, IconGrid, IconArrows, IconBarChart, IconCubeSmall, IconKanban, IconUpload } from './NavLinks'
 import { Badge } from '@/components/ui/Badge'
 import { signOut } from '@/app/actions/auth'
 
@@ -16,6 +16,7 @@ const NAV_SECTIONS = [
     items: [
       { href: '/dashboard',   label: 'Dashboard',    icon: <IconGrid /> },
       { href: '/lancamentos', label: 'Lançamentos',  icon: <IconArrows /> },
+      { href: '/importar',    label: 'Importar',     icon: <IconUpload /> },
     ],
   },
   {
