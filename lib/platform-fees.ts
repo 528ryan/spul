@@ -31,31 +31,36 @@ function round2(n: number): number {
 }
 
 // Shopee CNPJ — vigente desde 01/03/2026
-export function shopeeFeeCNPJ(gross: number, discount: number): FeeBreakdown {
-  const taxable = gross - discount
+// Fórmula: (valor × %faixa) + taxa_fixa + (valor × 2,5% campanha obrigatória)
+export function shopeeFeeCNPJ(taxable: number, discount: number): FeeBreakdown {
+  const valor = taxable - discount
   let feePct: number
   let feeFixed: number
 
-  if (taxable <= 79.99) {
+  if (valor < 8) {
+    feePct = 0.50; feeFixed = 0
+  } else if (valor <= 79.99) {
     feePct = 0.20; feeFixed = 4
-  } else if (taxable <= 99.99) {
+  } else if (valor <= 99.99) {
     feePct = 0.14; feeFixed = 16
-  } else if (taxable <= 199.99) {
+  } else if (valor <= 199.99) {
     feePct = 0.14; feeFixed = 20
   } else {
     feePct = 0.14; feeFixed = 26
   }
 
-  const feeTotal = taxable * feePct + feeFixed
+  const campanhaPct = 0.025
+  const totalPct    = feePct + campanhaPct
+  const feeTotal    = valor * totalPct + feeFixed
   return {
-    grossAmount: gross,
+    grossAmount:   taxable,
     discount,
-    taxableAmount: taxable,
-    feePct,
+    taxableAmount: valor,
+    feePct:        totalPct,
     feeFixed,
-    feeTotal,
-    netAmount: taxable - feeTotal,
-    feeLabel: `${(feePct * 100).toFixed(0)}% + R$${feeFixed.toFixed(2)}`,
+    feeTotal:      round2(feeTotal),
+    netAmount:     round2(valor - feeTotal),
+    feeLabel:      `${(totalPct * 100).toFixed(1)}% + R$${feeFixed.toFixed(2)}`,
   }
 }
 
