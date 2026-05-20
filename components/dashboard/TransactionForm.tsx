@@ -105,7 +105,12 @@ export function TransactionForm({ categories }: TransactionFormProps) {
   const pedidoFee = useMemo(
     () => {
       if (!pedidoPlatform || pedidoSubtotal <= 0) return null
-      return calculatePlatformFee(pedidoPlatform as Platform, pedidoSubtotal, pedidoDiscountNum)
+      return calculatePlatformFee(
+        pedidoPlatform as Platform,
+        pedidoSubtotal,
+        pedidoDiscountNum,
+        pedidoItems.map((i) => ({ valorUnitario: Number(i.unitPrice) || 0, quantidade: i.quantity })),
+      )
     },
     [pedidoPlatform, pedidoSubtotal, pedidoDiscountNum],
   )

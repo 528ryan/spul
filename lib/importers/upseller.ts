@@ -101,7 +101,7 @@ export function parseUpsellerFile(buffer: ArrayBuffer): UpsellerPedido[] {
     const desconto = primeira.desconto
     const valorEntrada = Math.max(0, valorBruto - desconto)
 
-    const fee = calculatePlatformFee(platform, valorBruto, desconto)
+    const fee = calculatePlatformFee(platform, valorBruto, desconto, items)
     const taxas = fee?.feeTotal ?? 0
 
     pedidos.push({

@@ -119,7 +119,12 @@ export async function createTransaction(
     const discount       = parsed.data.discount ?? 0
     const entradaAmount  = Math.max(0, grossAmount - discount) // o que entra na conta
     const fee            = parsed.data.platform
-      ? calculatePlatformFee(parsed.data.platform as Platform, grossAmount, discount)
+      ? calculatePlatformFee(
+          parsed.data.platform as Platform,
+          grossAmount,
+          discount,
+          parsed.data.items.map((i) => ({ valorUnitario: i.unit_price, quantidade: i.quantity })),
+        )
       : null
     const orderRef       = parsed.data.order_ref ?? null
     const date           = parsed.data.ordered_at.slice(0, 10) // YYYY-MM-DD
@@ -279,7 +284,12 @@ export async function importPedidos(
     const platformLabel = getPlatformLabel(pedido.platform)
 
     // Recalcular taxa server-side
-    const fee         = calculatePlatformFee(pedido.platform as Platform, pedido.valorBruto, pedido.desconto)
+    const fee         = calculatePlatformFee(
+      pedido.platform as Platform,
+      pedido.valorBruto,
+      pedido.desconto,
+      pedido.items.map((i) => ({ valorUnitario: i.valorUnitario, quantidade: i.quantidade })),
+    )
     const taxas       = fee?.feeTotal ?? 0
     const valorEntrada = Math.max(0, pedido.valorBruto - pedido.desconto)
 

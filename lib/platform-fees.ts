@@ -21,8 +21,17 @@ export interface FeeBreakdown {
   feeLabel: string
 }
 
+export interface PedidoItem {
+  valorUnitario: number
+  quantidade: number
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
+}
+
 // Shopee CNPJ — vigente desde 01/03/2026
-function shopeeFeeCNPJ(gross: number, discount: number): FeeBreakdown {
+export function shopeeFeeCNPJ(gross: number, discount: number): FeeBreakdown {
   const taxable = gross - discount
   let feePct: number
   let feeFixed: number
@@ -50,6 +59,40 @@ function shopeeFeeCNPJ(gross: number, discount: number): FeeBreakdown {
   }
 }
 
+// Shopee multi-item: calcula taxa por unidade de cada item
+export function calculateShopeeFeePorItens(
+  items: PedidoItem[],
+  discount: number = 0,
+): FeeBreakdown {
+  const totalBruto = items.reduce(
+    (sum, i) => sum + i.valorUnitario * i.quantidade,
+    0,
+  )
+
+  let feeTotal = 0
+
+  for (const item of items) {
+    const proporcao       = (item.valorUnitario * item.quantidade) / totalBruto
+    const descontoItem    = discount * proporcao
+    const valorUnitLiquido = item.valorUnitario - descontoItem / item.quantidade
+
+    const feeUnitaria = shopeeFeeCNPJ(valorUnitLiquido, 0)
+    feeTotal += feeUnitaria.feeTotal * item.quantidade
+  }
+
+  const taxable = totalBruto - discount
+  return {
+    grossAmount:  totalBruto,
+    discount,
+    taxableAmount: taxable,
+    feePct:   0,
+    feeFixed: 0,
+    feeTotal: round2(feeTotal),
+    netAmount: round2(taxable - feeTotal),
+    feeLabel: 'por item',
+  }
+}
+
 // TikTok Shop
 function tiktokFee(gross: number, discount: number): FeeBreakdown {
   const taxable = gross - discount
@@ -72,10 +115,14 @@ export function calculatePlatformFee(
   platform: Platform,
   gross: number,
   discount: number = 0,
+  items?: PedidoItem[],
 ): FeeBreakdown | null {
-  switch (platform) {
-    case 'shopee': return shopeeFeeCNPJ(gross, discount)
-    case 'tiktok': return tiktokFee(gross, discount)
-    default: return null
+  if (platform === 'shopee') {
+    if (items && items.length > 1) {
+      return calculateShopeeFeePorItens(items, discount)
+    }
+    return shopeeFeeCNPJ(gross - discount, 0) // 1 item: comportamento atual
   }
+  if (platform === 'tiktok') return tiktokFee(gross, discount)
+  return null
 }
