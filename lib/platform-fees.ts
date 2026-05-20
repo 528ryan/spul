@@ -31,40 +31,59 @@ function round2(n: number): number {
 }
 
 // Shopee CNPJ — vigente desde 01/03/2026
-// Fórmula: (valor × %faixa) + taxa_fixa + (valor × 2,5% campanha obrigatória)
+// Percentuais já incluem os 2,5% de campanha obrigatória
+// Fórmula: valor × %faixa + taxa_fixa
 export function shopeeFeeCNPJ(taxable: number, discount: number): FeeBreakdown {
   const valor = taxable - discount
   let feePct: number
   let feeFixed: number
 
   if (valor < 8) {
-    feePct = 0.50; feeFixed = 0
+    feePct = 0.50;  feeFixed = 0
   } else if (valor <= 79.99) {
-    feePct = 0.20; feeFixed = 4
+    feePct = 0.225; feeFixed = 4   // 20% + 2,5% campanha
   } else if (valor <= 99.99) {
-    feePct = 0.14; feeFixed = 16
+    feePct = 0.165; feeFixed = 16  // 14% + 2,5% campanha
   } else if (valor <= 199.99) {
-    feePct = 0.14; feeFixed = 20
+    feePct = 0.165; feeFixed = 20
   } else {
-    feePct = 0.14; feeFixed = 26
+    feePct = 0.165; feeFixed = 26
   }
 
-  const campanhaPct = 0.025
-  const totalPct    = feePct + campanhaPct
-  const feeTotal    = valor * totalPct + feeFixed
+  const feeTotal = valor * feePct + feeFixed
   return {
     grossAmount:   taxable,
     discount,
     taxableAmount: valor,
-    feePct:        totalPct,
+    feePct,
     feeFixed,
-    feeTotal:      round2(feeTotal),
-    netAmount:     round2(valor - feeTotal),
-    feeLabel:      `${(totalPct * 100).toFixed(1)}% + R$${feeFixed.toFixed(2)}`,
+    feeTotal:  round2(feeTotal),
+    netAmount: round2(valor - feeTotal),
+    feeLabel:  `${(feePct * 100).toFixed(1)}% + R$${feeFixed.toFixed(2)}`,
   }
 }
 
-// Shopee multi-item: calcula taxa por unidade de cada item
+// Taxa Shopee por 1 unidade (sem desconto — a taxa fixa é cobrada por unidade)
+function shopeeFeeCNPJUnit(valorUnit: number): number {
+  let feePct: number
+  let feeFixed: number
+
+  if (valorUnit < 8) {
+    feePct = 0.50;  feeFixed = 0
+  } else if (valorUnit <= 79.99) {
+    feePct = 0.225; feeFixed = 4
+  } else if (valorUnit <= 99.99) {
+    feePct = 0.165; feeFixed = 16
+  } else if (valorUnit <= 199.99) {
+    feePct = 0.165; feeFixed = 20
+  } else {
+    feePct = 0.165; feeFixed = 26
+  }
+
+  return round2(valorUnit * feePct + feeFixed)
+}
+
+// Shopee multi-item: taxa calculada por unidade × quantidade
 export function calculateShopeeFeePorItens(
   items: PedidoItem[],
   discount: number = 0,
@@ -77,17 +96,13 @@ export function calculateShopeeFeePorItens(
   let feeTotal = 0
 
   for (const item of items) {
-    const proporcao       = (item.valorUnitario * item.quantidade) / totalBruto
-    const descontoItem    = discount * proporcao
-    const valorUnitLiquido = item.valorUnitario - descontoItem / item.quantidade
-
-    const feeUnitaria = shopeeFeeCNPJ(valorUnitLiquido, 0)
-    feeTotal += feeUnitaria.feeTotal * item.quantidade
+    const feeUnitaria = shopeeFeeCNPJUnit(item.valorUnitario)
+    feeTotal += feeUnitaria * item.quantidade
   }
 
   const taxable = totalBruto - discount
   return {
-    grossAmount:  totalBruto,
+    grossAmount:   totalBruto,
     discount,
     taxableAmount: taxable,
     feePct:   0,
