@@ -155,26 +155,25 @@ function DropZone({ onFile, loading }: { onFile: (f: File) => void; loading: boo
 // ── Input inline ──────────────────────────────────────────────────────────
 
 function FieldInput({
-  label, value, onChange, type = 'number', placeholder, className = '',
+  label, value, onChange, type = 'number', placeholder,
 }: {
-  label?: string
+  label: string
   value: string
   onChange: (v: string) => void
   type?: 'number' | 'text'
   placeholder?: string
-  className?: string
 }) {
   return (
-    <label className={['flex items-center gap-1', className].join(' ')}>
-      {label && <span className="text-muted-2 text-xs shrink-0">{label}</span>}
+    <label className="flex flex-col gap-1">
+      <span className="text-[10px] font-medium uppercase tracking-wide text-muted">{label}</span>
       <input
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        step="0.01"
+        step={type === 'number' ? '0.01' : undefined}
         min={type === 'number' ? '0' : undefined}
-        className="bg-surface border border-border rounded px-2 py-1 text-xs text-text w-24 tabular-nums focus:outline-none focus:border-accent transition-colors"
+        className="w-full bg-surface border border-border rounded px-2 py-1.5 text-xs text-text tabular-nums focus:outline-none focus:border-accent transition-colors"
       />
     </label>
   )
@@ -224,39 +223,20 @@ function PedidoCardNovo({
       {/* Itens */}
       <p className="text-xs text-muted truncate">{itemsLabel}</p>
 
-      {/* Campos editáveis */}
-      <div className="flex flex-wrap gap-3 items-end">
-        <FieldInput
-          label="Bruto R$"
-          value={override.valorBruto}
-          onChange={set('valorBruto')}
-        />
-        <FieldInput
-          label="Líquido R$"
-          value={override.valorLiquido}
-          onChange={set('valorLiquido')}
-          placeholder="Shopee paga"
-        />
-        <FieldInput
-          label="Desc. R$"
-          value={override.desconto}
-          onChange={set('desconto')}
-          className="w-20"
-        />
-        <FieldInput
-          label="Rastreio"
-          value={override.trackingCode}
-          onChange={set('trackingCode')}
-          type="text"
-          placeholder="código"
-          className="flex-1 min-w-0"
-        />
+      {/* Linha 1: Bruto + Líquido */}
+      <div className="grid grid-cols-2 gap-3">
+        <FieldInput label="Bruto R$"   value={override.valorBruto}   onChange={set('valorBruto')} />
+        <FieldInput label="Líquido R$" value={override.valorLiquido} onChange={set('valorLiquido')} placeholder="Shopee paga" />
+      </div>
+
+      {/* Linha 2: Desconto + Rastreio */}
+      <div className="grid grid-cols-2 gap-3">
+        <FieldInput label="Desc. R$" value={override.desconto}     onChange={set('desconto')} />
+        <FieldInput label="Rastreio" value={override.trackingCode} onChange={set('trackingCode')} type="text" placeholder="código" />
       </div>
 
       {/* Taxa calculada (somente leitura) */}
-      <p className={['text-xs font-medium', taxaColor].join(' ')}>
-        {taxaLabel}
-      </p>
+      <p className={['text-sm font-medium', taxaColor].join(' ')}>{taxaLabel}</p>
     </div>
   )
 }

@@ -1,10 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { KanbanCard } from './KanbanCard'
 import { getOrderDelay } from '@/lib/order-delay'
 import { PLATFORM_LABELS } from '@/lib/types'
+import { useToast } from '@/components/ui/ToastProvider'
+import { moveAllOrders } from '@/app/actions/orders'
 import type { Order } from '@/lib/types'
 import type { DelayLevel } from '@/lib/order-delay'
 
@@ -16,6 +18,21 @@ const STATUS_LABELS: Record<ActiveStatus, string> = {
   queued:   'Fila',
   printed:  'Impresso',
   packed:   'Embalado',
+}
+
+const ALL_STATUS_LABELS: Record<string, string> = {
+  received: 'Recebido',
+  queued:   'Na fila',
+  printed:  'Impresso',
+  packed:   'Embalado',
+  shipped:  'Despachado',
+}
+
+const NEXT_STATUS: Record<ActiveStatus, string> = {
+  received: 'queued',
+  queued:   'printed',
+  printed:  'packed',
+  packed:   'shipped',
 }
 
 const DELAY_RANK: Record<DelayLevel, number> = { ok: 0, warning: 1, alert: 2, critical: 3 }
@@ -39,6 +56,12 @@ function columnHeaderColor(level: DelayLevel | null): string {
   }
 }
 
+interface ConfirmModal {
+  fromStatus: ActiveStatus
+  toStatus:   string
+  count:      number
+}
+
 interface ProducaoClientProps {
   ordersByStatus: Record<ActiveStatus, Order[]>
   shippedOrders: Order[]
@@ -46,8 +69,28 @@ interface ProducaoClientProps {
 
 export function ProducaoClient({ ordersByStatus, shippedOrders }: ProducaoClientProps) {
   const router = useRouter()
+  const { showToast } = useToast()
   const [mobileTab, setMobileTab] = useState<'all' | ActiveStatus>('all')
   const [shippedOpen, setShippedOpen] = useState(false)
+  const [confirmModal, setConfirmModal] = useState<ConfirmModal | null>(null)
+  const [isPending, startTransition] = useTransition()
+
+  function handleMoveAll() {
+    if (!confirmModal) return
+    const { fromStatus, toStatus, count } = confirmModal
+    startTransition(async () => {
+      const res = await moveAllOrders(fromStatus, toStatus)
+      setConfirmModal(null)
+      if (res.success) {
+        showToast(
+          `${res.count ?? count} pedidos movidos para ${ALL_STATUS_LABELS[toStatus] ?? toStatus}`,
+          'success',
+        )
+      } else {
+        showToast(res.error ?? 'Erro ao mover pedidos', 'error')
+      }
+    })
+  }
 
   const allActive = ACTIVE_STATUSES.flatMap((s) => ordersByStatus[s])
   const mobileOrders = mobileTab === 'all' ? allActive : ordersByStatus[mobileTab]
@@ -73,11 +116,23 @@ export function ProducaoClient({ ordersByStatus, shippedOrders }: ProducaoClient
           const orders = ordersByStatus[status]
           const worst = worstDelayLevel(orders)
           const headerColor = columnHeaderColor(worst)
+          const nextStatus = NEXT_STATUS[status]
           return (
             <div key={status} className="space-y-2">
               <div className={`flex items-center justify-between px-2 py-1.5 rounded-lg border text-xs font-medium uppercase tracking-wide ${headerColor}`}>
                 <span>{STATUS_LABELS[status]}</span>
-                {orders.length > 0 && <span className="font-bold">{orders.length}</span>}
+                <div className="flex items-center gap-2">
+                  {orders.length > 0 && <span className="font-bold">{orders.length}</span>}
+                  {orders.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmModal({ fromStatus: status, toStatus: nextStatus, count: orders.length })}
+                      className="text-[10px] font-normal normal-case tracking-normal text-muted hover:text-accent transition-colors cursor-pointer"
+                    >
+                      Mover todos →
+                    </button>
+                  )}
+                </div>
               </div>
               {orders.length === 0 ? (
                 <div className="border border-dashed border-border rounded-lg p-4 text-center text-xs text-muted">
@@ -90,6 +145,38 @@ export function ProducaoClient({ ordersByStatus, shippedOrders }: ProducaoClient
           )
         })}
       </div>
+
+      {/* Modal de confirmação "Mover todos" */}
+      {confirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-bg/70 backdrop-blur-sm">
+          <div className="bg-surface border border-border rounded-xl p-6 w-full max-w-sm shadow-xl">
+            <p className="text-text text-sm font-medium mb-1">Mover todos os pedidos?</p>
+            <p className="text-muted text-sm mb-6">
+              Mover <span className="text-text font-semibold">{confirmModal.count}</span> pedidos
+              de <span className="text-text">&quot;{ALL_STATUS_LABELS[confirmModal.fromStatus]}&quot;</span>{' '}
+              para <span className="text-text">&quot;{ALL_STATUS_LABELS[confirmModal.toStatus]}&quot;</span>.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmModal(null)}
+                disabled={isPending}
+                className="px-4 py-2 text-sm text-muted hover:text-text border border-border rounded-lg transition-colors disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleMoveAll}
+                disabled={isPending}
+                className="px-4 py-2 text-sm font-medium bg-accent text-bg rounded-lg hover:bg-accent-dim transition-colors disabled:opacity-50"
+              >
+                {isPending ? 'Movendo…' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Mobile list with tabs */}
       <div className="lg:hidden">

@@ -102,6 +102,30 @@ export async function addTrackingCode(
   return { success: true }
 }
 
+export async function moveAllOrders(
+  fromStatus: string,
+  toStatus: string,
+): Promise<{ success: boolean; count?: number; error?: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { success: false, error: 'Não autenticado' }
+
+  const parsed = OrderStatusSchema.safeParse(toStatus)
+  if (!parsed.success) return { success: false, error: 'Status de destino inválido' }
+
+  const { data, error } = await supabase
+    .from('orders')
+    .update({ status: parsed.data })
+    .eq('user_id', user.id)
+    .eq('status', fromStatus)
+    .select('id')
+
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath('/producao')
+  return { success: true, count: data?.length ?? 0 }
+}
+
 export async function deleteOrder(
   id: string,
 ): Promise<{ success: boolean; error?: string }> {
